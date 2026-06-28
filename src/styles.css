@@ -19,7 +19,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -161,11 +162,18 @@ h1 {
 
 .profile-menu {
   position: relative;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-left: auto;
 }
 
 .profile-button,
-.icon-button {
+.icon-button,
+.language-control {
   border: 1px solid #d7e0de;
   background: #ffffff;
   color: #263840;
@@ -179,9 +187,46 @@ h1 {
   font-weight: 700;
 }
 
+.language-control {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 7px;
+  border-radius: 7px;
+  padding: 0 9px;
+}
+
+.language-control select {
+  min-width: 116px;
+  border: 0;
+  background: transparent;
+  color: #263840;
+  font-weight: 800;
+  outline: none;
+}
+
+.language-control:focus-within {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.language-control:has(select:disabled) {
+  color: #7d8b91;
+}
+
 .profile-button:hover,
-.icon-button:hover {
+.icon-button:hover,
+.language-control:hover {
   background: #f3f7f6;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
 
 .profile-dropdown {
@@ -418,6 +463,15 @@ tbody tr:hover {
   .topbar-brand span:last-child,
   .profile-button span {
     display: none;
+  }
+
+  .language-control {
+    padding: 0 8px;
+  }
+
+  .language-control select {
+    width: 64px;
+    min-width: 64px;
   }
 
   .dashboard-layout {

@@ -11,12 +11,15 @@ import {
 import {
   ChevronDown,
   Boxes,
+  Languages,
   LogOut,
   Menu,
   ShieldCheck,
   UserCircle,
   X,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import './i18n';
 import './styles.css';
 
 const inventoryQuery = `
@@ -76,6 +79,166 @@ const inventoryColumns = [
   { key: 'Discount', label: 'Discount' },
 ];
 
+const localizationBaseUrl =
+  import.meta.env.VITE_BLOCKS_API_URL || 'https://dev-api.blocksdevelopers.com';
+
+async function loadLocalizationModule(i18n, languageCode, moduleName, signal) {
+  const blocksKey = import.meta.env.VITE_X_BLOCKS_KEY;
+
+  if (!blocksKey || !languageCode || i18n.hasResourceBundle(languageCode, moduleName)) {
+    return;
+  }
+
+  const response = await fetch(
+    `${localizationBaseUrl}/localization/v4/Key/GetUilmFile?Language=${encodeURIComponent(
+      languageCode,
+    )}&ModuleName=${encodeURIComponent(moduleName)}&ProjectKey=${encodeURIComponent(blocksKey)}`,
+    {
+      headers: {
+        'x-blocks-key': blocksKey,
+      },
+      signal,
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}`);
+  }
+
+  const resources = await response.json();
+
+  if (resources && typeof resources === 'object' && !Array.isArray(resources)) {
+    i18n.addResourceBundle(languageCode, moduleName, resources, true, true);
+  }
+}
+
+function getLanguageLabel(language) {
+  return language.languageName || language.name || language.languageCode || language.code;
+}
+
+function getLanguageCode(language) {
+  return language.languageCode || language.code || language.culture || language.id;
+}
+
+function LanguageSelector() {
+  const { i18n } = useTranslation();
+  const [languages, setLanguages] = useState([]);
+  const [languageStatus, setLanguageStatus] = useState('loading');
+  const [selectedLanguage, setSelectedLanguage] = useState(i18n.language || 'en-US');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const blocksKey = import.meta.env.VITE_X_BLOCKS_KEY;
+
+    async function loadLanguages() {
+      if (!blocksKey) {
+        setLanguageStatus('error');
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `${localizationBaseUrl}/localization/v4/Language/Gets?ProjectKey=${encodeURIComponent(
+            blocksKey,
+          )}`,
+          {
+            headers: {
+              'x-blocks-key': blocksKey,
+            },
+            signal: controller.signal,
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        const payload = await response.json();
+        const languageList = Array.isArray(payload) ? payload : payload.items || payload.data || [];
+        const normalizedLanguages = languageList
+          .map((language) => ({
+            ...language,
+            languageCode: getLanguageCode(language),
+            languageName: getLanguageLabel(language),
+          }))
+          .filter((language) => language.languageCode);
+
+        setLanguages(normalizedLanguages);
+
+        const savedLanguage = localStorage.getItem('blocks-os-language');
+        const defaultLanguage =
+          normalizedLanguages.find((language) => language.languageCode === savedLanguage) ||
+          normalizedLanguages.find((language) => language.isDefault) ||
+          normalizedLanguages[0];
+
+        if (defaultLanguage) {
+          await loadLocalizationModule(
+            i18n,
+            defaultLanguage.languageCode,
+            'common',
+            controller.signal,
+          );
+          setSelectedLanguage(defaultLanguage.languageCode);
+          i18n.changeLanguage(defaultLanguage.languageCode);
+        }
+
+        setLanguageStatus('ready');
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          return;
+        }
+
+        setLanguageStatus('error');
+      }
+    }
+
+    loadLanguages();
+
+    return () => controller.abort();
+  }, [i18n]);
+
+  async function handleLanguageChange(event) {
+    const nextLanguage = event.target.value;
+    setSelectedLanguage(nextLanguage);
+    localStorage.setItem('blocks-os-language', nextLanguage);
+
+    try {
+      await loadLocalizationModule(i18n, nextLanguage, 'common');
+    } catch (error) {
+      console.error(error);
+    } finally {
+      i18n.changeLanguage(nextLanguage);
+    }
+  }
+
+  return (
+    <label className="language-control" title="Language">
+      <Languages size={18} aria-hidden="true" />
+      <span className="sr-only">Language</span>
+      <select
+        value={selectedLanguage}
+        onChange={handleLanguageChange}
+        disabled={languageStatus !== 'ready' || languages.length === 0}
+        aria-label="Language"
+      >
+        {languageStatus === 'loading' ? (
+          <option value={selectedLanguage}>Loading languages</option>
+        ) : null}
+        {languageStatus === 'error' ? (
+          <option value={selectedLanguage}>Languages unavailable</option>
+        ) : null}
+        {languageStatus === 'ready'
+          ? languages.map((language) => (
+              <option key={language.languageCode} value={language.languageCode}>
+                {language.languageName}
+              </option>
+            ))
+          : null}
+      </select>
+    </label>
+  );
+}
+
 function formatCellValue(key, value) {
   if (value === null || value === undefined || value === '') {
     return '-';
@@ -101,6 +264,7 @@ function formatCellValue(key, value) {
 
 function LoginPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   function handleSubmit(event) {
     event.preventDefault();
@@ -114,15 +278,15 @@ function LoginPage() {
           <span className="brand-mark">B</span>
           <div>
             <p className="eyebrow">Blocks OS</p>
-            <h1 id="login-title">Sign in</h1>
+            <h1 id="login-title">{t('auth.signIn', { defaultValue: 'Sign in' })}</h1>
           </div>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>
-          <label htmlFor="username">Username</label>
+          <label htmlFor="username">{t('auth.username', { defaultValue: 'Username' })}</label>
           <input id="username" name="username" type="text" autoComplete="username" />
 
-          <label htmlFor="password">Password</label>
+          <label htmlFor="password">{t('auth.password', { defaultValue: 'Password' })}</label>
           <input
             id="password"
             name="password"
@@ -131,7 +295,7 @@ function LoginPage() {
           />
 
           <button className="primary-button" type="submit">
-            Login
+            {t('auth.login', { defaultValue: 'Login' })}
           </button>
         </form>
       </section>
@@ -143,6 +307,7 @@ function AppShell({ children }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   function handleLogout() {
     navigate('/');
@@ -169,37 +334,41 @@ function AppShell({ children }) {
           <span>Blocks OS</span>
         </div>
 
-        <div className="profile-menu">
-          <button
-            className="profile-button"
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={profileOpen}
-            onClick={() => setProfileOpen((isOpen) => !isOpen)}
-          >
-            <UserCircle size={22} />
-            <span>Meraj Admin</span>
-            <ChevronDown size={16} />
-          </button>
+        <div className="topbar-actions">
+          <LanguageSelector />
 
-          {profileOpen ? (
-            <div className="profile-dropdown" role="menu">
-              <button type="button" role="menuitem" onClick={() => setProfileOpen(false)}>
-                My Profile
-              </button>
-              <button type="button" role="menuitem" onClick={handleLogout}>
-                <LogOut size={16} />
-                log out
-              </button>
-            </div>
-          ) : null}
+          <div className="profile-menu">
+            <button
+              className="profile-button"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={profileOpen}
+              onClick={() => setProfileOpen((isOpen) => !isOpen)}
+            >
+              <UserCircle size={22} />
+              <span>{t('profile.name', { defaultValue: 'Meraj Admin' })}</span>
+              <ChevronDown size={16} />
+            </button>
+
+            {profileOpen ? (
+              <div className="profile-dropdown" role="menu">
+                <button type="button" role="menuitem" onClick={() => setProfileOpen(false)}>
+                  {t('profile.myProfile', { defaultValue: 'My Profile' })}
+                </button>
+                <button type="button" role="menuitem" onClick={handleLogout}>
+                  <LogOut size={16} />
+                  {t('LOGOUT', { ns: 'common', defaultValue: 'log out' })}
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
 
       <div className="dashboard-layout">
         <aside className={`sidebar ${drawerOpen ? 'open' : ''}`} aria-label="Dashboard menu">
           <div className="sidebar-mobile-head">
-            <span>Menu</span>
+            <span>{t('navigation.menu', { defaultValue: 'Menu' })}</span>
             <button
               className="icon-button"
               type="button"
@@ -217,7 +386,7 @@ function AppShell({ children }) {
               onClick={closeDrawer}
             >
               <ShieldCheck size={19} />
-              <span>IAM</span>
+              <span>{t('navigation.iam', { defaultValue: 'IAM' })}</span>
             </NavLink>
             <NavLink
               className={({ isActive }) => `drawer-link ${isActive ? 'active' : ''}`}
@@ -225,7 +394,7 @@ function AppShell({ children }) {
               onClick={closeDrawer}
             >
               <Boxes size={19} />
-              <span>Inventory</span>
+              <span>{t('navigation.inventory', { defaultValue: 'Inventory' })}</span>
             </NavLink>
           </nav>
         </aside>
