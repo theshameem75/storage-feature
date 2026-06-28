@@ -14,7 +14,9 @@ import {
   Languages,
   LogOut,
   Menu,
+  Moon,
   ShieldCheck,
+  Sun,
   UserCircle,
   X,
 } from 'lucide-react';
@@ -81,6 +83,8 @@ const inventoryColumns = [
 
 const localizationBaseUrl =
   import.meta.env.VITE_BLOCKS_API_URL || 'https://dev-api.blocksdevelopers.com';
+
+const themeStorageKey = 'blocks-os-theme';
 
 async function loadLocalizationModule(i18n, languageCode, moduleName, signal) {
   const blocksKey = import.meta.env.VITE_X_BLOCKS_KEY;
@@ -239,6 +243,22 @@ function LanguageSelector() {
   );
 }
 
+function ThemeToggle({ theme, onThemeChange }) {
+  const isDark = theme === 'dark';
+
+  return (
+    <button
+      className="icon-button theme-toggle"
+      type="button"
+      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={isDark ? 'Light mode' : 'Dark mode'}
+      onClick={() => onThemeChange(isDark ? 'light' : 'dark')}
+    >
+      {isDark ? <Sun size={19} /> : <Moon size={19} />}
+    </button>
+  );
+}
+
 function formatCellValue(key, value) {
   if (value === null || value === undefined || value === '') {
     return '-';
@@ -262,7 +282,7 @@ function formatCellValue(key, value) {
   return value;
 }
 
-function LoginPage() {
+function LoginPage({ theme, onThemeChange }) {
   const navigate = useNavigate();
   const { t } = useTranslation();
 
@@ -273,6 +293,10 @@ function LoginPage() {
 
   return (
     <main className="login-shell">
+      <div className="login-theme-action">
+        <ThemeToggle theme={theme} onThemeChange={onThemeChange} />
+      </div>
+
       <section className="login-panel" aria-labelledby="login-title">
         <div className="brand-lockup">
           <span className="brand-mark">B</span>
@@ -303,7 +327,7 @@ function LoginPage() {
   );
 }
 
-function AppShell({ children }) {
+function AppShell({ children, theme, onThemeChange }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const navigate = useNavigate();
@@ -335,6 +359,7 @@ function AppShell({ children }) {
         </div>
 
         <div className="topbar-actions">
+          <ThemeToggle theme={theme} onThemeChange={onThemeChange} />
           <LanguageSelector />
 
           <div className="profile-menu">
@@ -414,9 +439,9 @@ function AppShell({ children }) {
   );
 }
 
-function DashboardPage() {
+function DashboardPage({ theme, onThemeChange }) {
   return (
-    <AppShell>
+    <AppShell theme={theme} onThemeChange={onThemeChange}>
       <section className="workspace-head">
         <p className="eyebrow">Dashboard</p>
         <h1>Blocks OS Console</h1>
@@ -438,7 +463,7 @@ function DashboardPage() {
   );
 }
 
-function InventoryPage() {
+function InventoryPage({ theme, onThemeChange }) {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryMeta, setInventoryMeta] = useState(null);
   const [inventoryStatus, setInventoryStatus] = useState('loading');
@@ -492,7 +517,7 @@ function InventoryPage() {
   }, []);
 
   return (
-    <AppShell>
+    <AppShell theme={theme} onThemeChange={onThemeChange}>
       <section className="workspace-head">
         <p className="eyebrow">Inventory</p>
         <h1>Items</h1>
@@ -553,12 +578,37 @@ function InventoryPage() {
 }
 
 function App() {
+  const [theme, setTheme] = useState(() => {
+    const savedTheme = localStorage.getItem(themeStorageKey);
+
+    if (savedTheme === 'light' || savedTheme === 'dark') {
+      return savedTheme;
+    }
+
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    localStorage.setItem(themeStorageKey, theme);
+  }, [theme]);
+
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<LoginPage />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/inventory" element={<InventoryPage />} />
+        <Route
+          path="/"
+          element={<LoginPage theme={theme} onThemeChange={setTheme} />}
+        />
+        <Route
+          path="/dashboard"
+          element={<DashboardPage theme={theme} onThemeChange={setTheme} />}
+        />
+        <Route
+          path="/inventory"
+          element={<InventoryPage theme={theme} onThemeChange={setTheme} />}
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
