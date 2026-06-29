@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   BrowserRouter,
@@ -13,6 +13,7 @@ import {
   ChevronDown,
   Boxes,
   Languages,
+  LogIn,
   LogOut,
   Menu,
   Moon,
@@ -27,6 +28,11 @@ import {
 import { useTranslation } from 'react-i18next';
 import './i18n';
 import './styles.css';
+import {
+  handleAuthorizationCallback,
+  logout as oidcLogout,
+  startAuthorization,
+} from './services/auth';
 
 const inventoryQuery = `
 query {
@@ -548,12 +554,21 @@ function formatCellValue(key, value) {
 }
 
 function LoginPage({ theme, onThemeChange }) {
-  const navigate = useNavigate();
   const { t } = useTranslation();
+  const [loginStatus, setLoginStatus] = useState('idle');
+  const [loginError, setLoginError] = useState('');
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
-    navigate('/dashboard');
+    setLoginStatus('loading');
+    setLoginError('');
+
+    try {
+      await startAuthorization();
+    } catch (error) {
+      setLoginError(error.message || 'Login failed');
+      setLoginStatus('error');
+    }
   }
 
   return (
@@ -572,22 +587,73 @@ function LoginPage({ theme, onThemeChange }) {
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>
-          <label htmlFor="username">{t('auth.username', { defaultValue: 'Username' })}</label>
-          <input id="username" name="username" type="text" autoComplete="username" />
+          {loginStatus === 'error' ? (
+            <div className="form-message error" role="alert">
+              {loginError}
+            </div>
+          ) : null}
 
-          <label htmlFor="password">{t('auth.password', { defaultValue: 'Password' })}</label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-          />
-
-          <button className="primary-button" type="submit">
-            {t('auth.login', { defaultValue: 'Login' })}
+          <button className="primary-button" type="submit" disabled={loginStatus === 'loading'}>
+            <LogIn size={18} />
+            <span>
+              {loginStatus === 'loading'
+                ? t('auth.signingIn', { defaultValue: 'Signing in...' })
+                : t('auth.login', { defaultValue: 'Login' })}
+            </span>
           </button>
         </form>
       </section>
+    </main>
+  );
+}
+
+function AuthCallbackPage() {
+  const navigate = useNavigate();
+  const [error, setError] = useState('');
+  const hasProcessed = useRef(false);
+
+  useEffect(() => {
+    if (hasProcessed.current) {
+      return undefined;
+    }
+
+    hasProcessed.current = true;
+    let isMounted = true;
+
+    async function completeSignIn() {
+      try {
+        await handleAuthorizationCallback();
+        navigate('/dashboard', { replace: true });
+      } catch (callbackError) {
+        if (!isMounted) {
+          return;
+        }
+
+        setError(callbackError.message || 'Authentication failed');
+        window.setTimeout(() => navigate('/', { replace: true }), 3000);
+      }
+    }
+
+    completeSignIn();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [navigate]);
+
+  return (
+    <main className="callback-page">
+      {error ? (
+        <div className="form-message error callback-message" role="alert">
+          <strong>{error}</strong>
+          <span>Redirecting to login...</span>
+        </div>
+      ) : (
+        <>
+          <div className="spinner" aria-hidden="true" />
+          <p>Completing sign in...</p>
+        </>
+      )}
     </main>
   );
 }
@@ -598,7 +664,8 @@ function AppShell({ children, theme, onThemeChange }) {
   const navigate = useNavigate();
   const { t } = useTranslation();
 
-  function handleLogout() {
+  async function handleLogout() {
+    await oidcLogout();
     navigate('/');
   }
 
@@ -996,6 +1063,8 @@ function App() {
           path="/"
           element={<LoginPage theme={theme} onThemeChange={setTheme} />}
         />
+        <Route path="/callback" element={<AuthCallbackPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route
           path="/dashboard"
           element={<DashboardPage theme={theme} onThemeChange={setTheme} />}
