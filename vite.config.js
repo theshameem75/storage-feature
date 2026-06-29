@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     allowedHosts: [
-      'pbfvhd.seliseblocks.com'
+      'dhamzv.seliseblocks.com'
     ]
   }
 })
