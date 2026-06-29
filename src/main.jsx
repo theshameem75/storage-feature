@@ -12,6 +12,8 @@ import {
   ArrowLeft,
   ChevronDown,
   Boxes,
+  CircleCheck,
+  KeyRound,
   Languages,
   LogIn,
   LogOut,
@@ -95,6 +97,15 @@ const localizationBaseUrl =
   import.meta.env.VITE_BLOCKS_API_URL || 'https://dev-api.blocksdevelopers.com';
 const storageBaseUrl =
   import.meta.env.VITE_BLOCKS_LOGIC_URL || 'https://dev-logic.blocksdevelopers.com';
+const authBaseUrl =
+  import.meta.env.VITE_OIDC_API_URL ||
+  import.meta.env.VITE_API_URL ||
+  `${localizationBaseUrl.replace(/\/$/, '')}/iam/v4`;
+const authTenantId =
+  import.meta.env.VITE_OIDC_TENANT_ID ||
+  import.meta.env.VITE_TENANT_ID ||
+  import.meta.env.VITE_X_BLOCKS_KEY ||
+  '';
 
 const themeStorageKey = 'blocks-os-theme';
 
@@ -658,6 +669,187 @@ function AuthCallbackPage() {
   );
 }
 
+function ActivationPage({ theme, onThemeChange }) {
+  const navigate = useNavigate();
+  const { t } = useTranslation();
+  const searchParams = new URLSearchParams(window.location.search);
+  const code = searchParams.get('code') || '';
+  const languageCode = searchParams.get('lang') || '';
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [activationStatus, setActivationStatus] = useState('idle');
+  const [activationError, setActivationError] = useState('');
+
+  const isActivating = activationStatus === 'loading';
+  const isActivated = activationStatus === 'success';
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setActivationError('');
+
+    if (password.length < 8) {
+      setActivationError('Password must be at least 8 characters');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setActivationError('Passwords do not match');
+      return;
+    }
+
+    setActivationStatus('loading');
+
+    try {
+      const response = await fetch(`${authBaseUrl}/auth/activate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'x-blocks-key': authTenantId,
+        },
+        body: JSON.stringify({
+          code,
+          password,
+          firstName,
+          lastName,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || 'Activation failed. Please check your code and try again.');
+      }
+
+      setActivationStatus('success');
+      window.setTimeout(() => navigate('/', { replace: true }), 3000);
+    } catch (error) {
+      setActivationError(error.message || 'Network error. Please try again.');
+      setActivationStatus('error');
+    }
+  }
+
+  return (
+    <main className="login-shell activation-shell">
+      <div className="login-theme-action">
+        <ThemeToggle theme={theme} onThemeChange={onThemeChange} />
+      </div>
+
+      <section className="login-panel activation-panel" aria-labelledby="activation-title">
+        <div className="brand-lockup">
+          <span className="brand-mark">
+            {isActivated ? <CircleCheck size={26} /> : <KeyRound size={26} />}
+          </span>
+          <div>
+            <p className="eyebrow">
+              {t('auth.activation', { defaultValue: 'Account activation' })}
+            </p>
+            <h1 id="activation-title">
+              {isActivated
+                ? t('auth.activated', { defaultValue: 'Account activated' })
+                : t('auth.setPassword', { defaultValue: 'Set password' })}
+            </h1>
+          </div>
+        </div>
+
+        {!code ? (
+          <div className="form-message error" role="alert">
+            Invalid activation link. Please check your email for the correct link.
+          </div>
+        ) : null}
+
+        {isActivated ? (
+          <div className="activation-success" role="status">
+            <CircleCheck size={48} />
+            <strong>Account Activated!</strong>
+            <span>Redirecting you to login...</span>
+          </div>
+        ) : null}
+
+        {code && !isActivated ? (
+          <form className="login-form activation-form" onSubmit={handleSubmit}>
+            {languageCode ? (
+              <input type="hidden" name="lang" value={languageCode} readOnly />
+            ) : null}
+
+            <div className="activation-name-grid">
+              <label htmlFor="firstName">
+                <span>First name</span>
+                <input
+                  id="firstName"
+                  name="firstName"
+                  type="text"
+                  autoComplete="given-name"
+                  value={firstName}
+                  onChange={(event) => setFirstName(event.target.value)}
+                  disabled={isActivating}
+                  required
+                />
+              </label>
+
+              <label htmlFor="lastName">
+                <span>Last name</span>
+                <input
+                  id="lastName"
+                  name="lastName"
+                  type="text"
+                  autoComplete="family-name"
+                  value={lastName}
+                  onChange={(event) => setLastName(event.target.value)}
+                  disabled={isActivating}
+                  required
+                />
+              </label>
+            </div>
+
+            <label htmlFor="activationPassword">
+              <span>Password</span>
+              <input
+                id="activationPassword"
+                name="password"
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                disabled={isActivating}
+                required
+              />
+            </label>
+
+            <label htmlFor="confirmActivationPassword">
+              <span>Confirm password</span>
+              <input
+                id="confirmActivationPassword"
+                name="confirmPassword"
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                disabled={isActivating}
+                required
+              />
+            </label>
+
+            {activationError ? (
+              <div className="form-message error" role="alert">
+                {activationError}
+              </div>
+            ) : null}
+
+            <button className="primary-button" type="submit" disabled={isActivating}>
+              <KeyRound size={18} />
+              <span>{isActivating ? 'Activating...' : 'Activate Account'}</span>
+            </button>
+          </form>
+        ) : null}
+      </section>
+    </main>
+  );
+}
+
 function AppShell({ children, theme, onThemeChange }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1065,6 +1257,10 @@ function App() {
         />
         <Route path="/callback" element={<AuthCallbackPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        <Route
+          path="/activate"
+          element={<ActivationPage theme={theme} onThemeChange={setTheme} />}
+        />
         <Route
           path="/dashboard"
           element={<DashboardPage theme={theme} onThemeChange={setTheme} />}

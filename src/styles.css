@@ -105,6 +105,10 @@ button {
   padding: 34px;
 }
 
+.activation-panel {
+  width: min(100%, 560px);
+}
+
 .brand-lockup,
 .topbar-brand,
 .profile-button,
@@ -157,13 +161,20 @@ h1 {
   gap: 10px;
 }
 
-.login-form label {
+.login-form label,
+.activation-form label {
   color: var(--text-strong);
   font-size: 0.92rem;
   font-weight: 700;
 }
 
-.login-form input {
+.activation-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.login-form input,
+.activation-form input {
   width: 100%;
   min-height: 46px;
   border: 1px solid var(--border-strong);
@@ -174,9 +185,33 @@ h1 {
   padding: 10px 12px;
 }
 
-.login-form input:focus {
+.login-form input:focus,
+.activation-form input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.activation-name-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.activation-success {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  color: var(--text-strong);
+  text-align: center;
+}
+
+.activation-success svg {
+  color: var(--accent);
+}
+
+.activation-success strong {
+  color: var(--text-heading);
+  font-size: 1.2rem;
 }
 
 .primary-button,
@@ -692,6 +727,10 @@ tbody tr:hover {
 @media (max-width: 760px) {
   .login-panel {
     padding: 28px 22px;
+  }
+
+  .activation-name-grid {
+    grid-template-columns: 1fr;
   }
 
   .topbar {
