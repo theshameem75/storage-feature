@@ -24,6 +24,19 @@ const OIDC_CONFIG = {
   scope: import.meta.env.VITE_OIDC_SCOPE || 'openid profile email',
 };
 
+const localAuthKeys = [
+  'access_token',
+  'accessToken',
+  'authToken',
+  'token',
+  'blocks-os-token',
+  'id_token',
+  'refresh_token',
+  'token_expiry',
+];
+
+const sessionAuthKeys = ['oidc_state', 'oidc_nonce', 'oidc_code_verifier'];
+
 function assertAuthConfig() {
   const missingKeys = [];
 
@@ -120,6 +133,11 @@ function normalizeTokenResponse(payload) {
       tokenPayload?.expiration ||
       tokenPayload?.Expiration,
   };
+}
+
+function clearAuthStorage() {
+  localAuthKeys.forEach((key) => localStorage.removeItem(key));
+  sessionAuthKeys.forEach((key) => sessionStorage.removeItem(key));
 }
 
 export async function startAuthorization() {
@@ -277,40 +295,47 @@ export async function handleAuthorizationCallback() {
 }
 
 export async function logout() {
-  const idToken = localStorage.getItem('id_token');
+  const tokensToRevoke = [
+    { token: localStorage.getItem('access_token'), tokenTypeHint: 'access_token' },
+    { token: localStorage.getItem('refresh_token'), tokenTypeHint: 'refresh_token' },
+    { token: localStorage.getItem('id_token'), tokenTypeHint: 'id_token' },
+  ].filter(({ token }) => Boolean(token));
 
-  if (idToken && OIDC_CONFIG.tenantId && OIDC_CONFIG.clientId && OIDC_CONFIG.clientSecret) {
-    try {
-      const revokeUrl = `${OIDC_CONFIG.issuer}/oidc/revoke?tenant_id=${encodeURIComponent(
-        OIDC_CONFIG.tenantId,
-      )}`;
-      const basicAuth = btoa(`${OIDC_CONFIG.clientId}:${OIDC_CONFIG.clientSecret}`);
+  clearAuthStorage();
 
-      await fetch(revokeUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Authorization: `Basic ${basicAuth}`,
-          'x-blocks-key': OIDC_CONFIG.tenantId,
-        },
-        body: new URLSearchParams({
-          token: idToken,
-          token_type_hint: 'id_token',
-          client_id: OIDC_CONFIG.clientId,
+  if (
+    tokensToRevoke.length &&
+    OIDC_CONFIG.tenantId &&
+    OIDC_CONFIG.clientId &&
+    OIDC_CONFIG.clientSecret
+  ) {
+    const revokeUrl = `${OIDC_CONFIG.issuer}/oidc/revoke?tenant_id=${encodeURIComponent(
+      OIDC_CONFIG.tenantId,
+    )}`;
+    const basicAuth = btoa(`${OIDC_CONFIG.clientId}:${OIDC_CONFIG.clientSecret}`);
+
+    await Promise.allSettled(
+      tokensToRevoke.map(({ token, tokenTypeHint }) =>
+        fetch(revokeUrl, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Accept: 'application/json',
+            Authorization: `Basic ${basicAuth}`,
+            'x-blocks-key': OIDC_CONFIG.tenantId,
+          },
+          body: new URLSearchParams({
+            token,
+            token_type_hint: tokenTypeHint,
+            client_id: OIDC_CONFIG.clientId,
+          }),
         }),
-      });
-    } catch (error) {
-      console.warn('Token revocation failed:', error);
-    }
+      ),
+    );
   }
 
-  localStorage.removeItem('access_token');
-  localStorage.removeItem('id_token');
-  localStorage.removeItem('refresh_token');
-  localStorage.removeItem('token_expiry');
-  sessionStorage.removeItem('oidc_state');
-  sessionStorage.removeItem('oidc_nonce');
-  sessionStorage.removeItem('oidc_code_verifier');
+  clearAuthStorage();
 }
 
 export function isAuthenticated() {

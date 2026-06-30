@@ -876,7 +876,7 @@ function AppShell({ children, theme, onThemeChange }) {
 
   async function handleLogout() {
     await oidcLogout();
-    navigate('/');
+    navigate('/', { replace: true });
   }
 
   function closeDrawer() {
@@ -897,7 +897,7 @@ function AppShell({ children, theme, onThemeChange }) {
 
         <div className="topbar-brand">
           <span className="brand-mark small">B</span>
-          <span>Blocks OS</span>
+          <span>Built with Blocks OS</span>
         </div>
 
         <div className="topbar-actions">
@@ -953,7 +953,7 @@ function AppShell({ children, theme, onThemeChange }) {
               onClick={closeDrawer}
             >
               <ShieldCheck size={19} />
-              <span>{t('navigation.iam', { defaultValue: 'IAM' })}</span>
+              <span>{t('IAM_DRAWER', { ns: 'common', defaultValue: 'IAM' })}</span>
             </NavLink>
             <NavLink
               className={({ isActive }) => `drawer-link ${isActive ? 'active' : ''}`}
@@ -961,7 +961,7 @@ function AppShell({ children, theme, onThemeChange }) {
               onClick={closeDrawer}
             >
               <Boxes size={19} />
-              <span>{t('navigation.inventory', { defaultValue: 'Inventory' })}</span>
+              <span>{t('INVENTORY_DRAWER', { ns: 'common', defaultValue: 'Inventory' })}</span>
             </NavLink>
           </nav>
         </aside>
