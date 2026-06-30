@@ -95,8 +95,8 @@ const inventoryColumns = [
 
 const localizationBaseUrl =
   import.meta.env.VITE_BLOCKS_API_URL || 'https://dev-api.blocksdevelopers.com';
-const storageBaseUrl =
-  import.meta.env.VITE_BLOCKS_LOGIC_URL || 'https://logic.seliseblocks.com';
+const dataGatewayUrl = `${localizationBaseUrl.replace(/\/$/, '')}/data/v4/gateway`;
+const filesUploadUrl = `${localizationBaseUrl.replace(/\/$/, '')}/data/v4/Files/GetPreSignedUrlForUpload`;
 const authBaseUrl =
   import.meta.env.VITE_OIDC_API_URL ||
   import.meta.env.VITE_API_URL ||
@@ -316,39 +316,24 @@ async function uploadInventoryFile(file) {
 
   const authHeaders = getAuthHeaders();
 
-  if (!authHeaders.Authorization) {
-    throw new Error('You must be signed in before uploading an inventory file.');
-  }
-
-  const itemId =
-    typeof crypto !== 'undefined' && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `${Date.now()}-${file.name}`;
-  const response = await fetch(`${storageBaseUrl}/api/Storage/GetPreSignedUrlForUpload`, {
+  const response = await fetch(filesUploadUrl, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       accept: 'text/plain',
       'Content-Type': 'application/json',
-      Authorization: authHeaders.Authorization,
       'x-blocks-key': import.meta.env.VITE_X_BLOCKS_KEY,
+      ...authHeaders,
     },
     body: JSON.stringify({
-      itemId,
-      metaData: JSON.stringify({
-        source: 'inventory',
-        contentType: file.type,
-        size: file.size,
-      }),
+      metaData: '',
       name: file.name,
-      parentDirectoryId: import.meta.env.VITE_STORAGE_PARENT_DIRECTORY_ID || '',
-      tags: 'inventory',
-      accessModifier: import.meta.env.VITE_STORAGE_ACCESS_MODIFIER || 'Private',
-      configurationName: import.meta.env.VITE_STORAGE_CONFIGURATION_NAME || '',
+      parentDirectoryId: '',
+      tags: '',
+      accessModifier: 'Public',
       projectKey: import.meta.env.VITE_X_BLOCKS_KEY,
       moduleName: 11,
-      additionalProperties: {
-        inventory: 'true',
-      },
+      configurationName: 'Default',
     }),
   });
 
@@ -397,8 +382,9 @@ mutation {
 }
 `;
 
-  const response = await fetch(import.meta.env.VITE_BLOCKS_DATA_URL, {
+  const response = await fetch(dataGatewayUrl, {
     method: 'POST',
+    credentials: 'include',
     headers: getDataHeaders(),
     body: JSON.stringify({ query }),
   });
@@ -429,6 +415,11 @@ function LanguageSelector() {
   const [languages, setLanguages] = useState([]);
   const [languageStatus, setLanguageStatus] = useState('loading');
   const [selectedLanguage, setSelectedLanguage] = useState(i18n.language || 'en-US');
+  const [languageOpen, setLanguageOpen] = useState(false);
+
+  const selectedLanguageLabel =
+    languages.find((language) => language.languageCode === selectedLanguage)?.languageName ||
+    selectedLanguage;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -476,12 +467,15 @@ function LanguageSelector() {
           normalizedLanguages[0];
 
         if (defaultLanguage) {
-          await loadLocalizationModule(
-            i18n,
-            defaultLanguage.languageCode,
-            'common',
-            controller.signal,
-          );
+          await Promise.all([
+            loadLocalizationModule(i18n, defaultLanguage.languageCode, 'common', controller.signal),
+            loadLocalizationModule(
+              i18n,
+              defaultLanguage.languageCode,
+              'inventory',
+              controller.signal,
+            ),
+          ]);
           setSelectedLanguage(defaultLanguage.languageCode);
           i18n.changeLanguage(defaultLanguage.languageCode);
         }
@@ -501,13 +495,21 @@ function LanguageSelector() {
     return () => controller.abort();
   }, [i18n]);
 
-  async function handleLanguageChange(event) {
-    const nextLanguage = event.target.value;
+  async function handleLanguageChange(nextLanguage) {
+    setLanguageOpen(false);
+
+    if (!nextLanguage || nextLanguage === selectedLanguage) {
+      return;
+    }
+
     setSelectedLanguage(nextLanguage);
     localStorage.setItem('blocks-os-language', nextLanguage);
 
     try {
-      await loadLocalizationModule(i18n, nextLanguage, 'common');
+      await Promise.all([
+        loadLocalizationModule(i18n, nextLanguage, 'common'),
+        loadLocalizationModule(i18n, nextLanguage, 'inventory'),
+      ]);
     } catch (error) {
       console.error(error);
     } finally {
@@ -516,30 +518,40 @@ function LanguageSelector() {
   }
 
   return (
-    <label className="language-control" title="Language">
-      <Languages size={18} aria-hidden="true" />
-      <span className="sr-only">Language</span>
-      <select
-        value={selectedLanguage}
-        onChange={handleLanguageChange}
-        disabled={languageStatus !== 'ready' || languages.length === 0}
+    <div className="language-menu">
+      <button
+        className="profile-button language-button"
+        type="button"
         aria-label="Language"
+        aria-haspopup="menu"
+        aria-expanded={languageOpen}
+        disabled={languageStatus !== 'ready' || languages.length === 0}
+        onClick={() => setLanguageOpen((isOpen) => !isOpen)}
       >
-        {languageStatus === 'loading' ? (
-          <option value={selectedLanguage}>Loading languages</option>
-        ) : null}
-        {languageStatus === 'error' ? (
-          <option value={selectedLanguage}>Languages unavailable</option>
-        ) : null}
-        {languageStatus === 'ready'
-          ? languages.map((language) => (
-              <option key={language.languageCode} value={language.languageCode}>
+        <Languages size={18} aria-hidden="true" />
+        <span>{languageStatus === 'ready' ? selectedLanguageLabel : 'Language'}</span>
+        <ChevronDown size={16} />
+      </button>
+
+      {languageOpen ? (
+        <div className="profile-dropdown language-dropdown" role="menu">
+          {languages.map((language) => (
+            <button
+              key={language.languageCode}
+              className={language.languageCode === selectedLanguage ? 'active' : ''}
+              type="button"
+              role="menuitem"
+              onClick={() => handleLanguageChange(language.languageCode)}
+            >
+              <span className="language-option-code">{language.languageCode}</span>
+              <span>
                 {language.languageName}
-              </option>
-            ))
-          : null}
-      </select>
-    </label>
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1007,10 +1019,17 @@ function DashboardPage({ theme, onThemeChange }) {
 
 function InventoryPage({ theme, onThemeChange }) {
   const navigate = useNavigate();
+  const { t, i18n } = useTranslation('inventory');
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryMeta, setInventoryMeta] = useState(null);
   const [inventoryStatus, setInventoryStatus] = useState('loading');
   const [inventoryError, setInventoryError] = useState('');
+
+  useEffect(() => {
+    loadLocalizationModule(i18n, i18n.language, 'inventory').catch((error) => {
+      console.error(error);
+    });
+  }, [i18n, i18n.language]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1020,8 +1039,9 @@ function InventoryPage({ theme, onThemeChange }) {
       setInventoryError('');
 
       try {
-        const response = await fetch(import.meta.env.VITE_BLOCKS_DATA_URL, {
+        const response = await fetch(dataGatewayUrl, {
           method: 'POST',
+          credentials: 'include',
           headers: getDataHeaders(),
           body: JSON.stringify({ query: inventoryQuery }),
           signal: controller.signal,
@@ -1061,7 +1081,7 @@ function InventoryPage({ theme, onThemeChange }) {
       <section className="workspace-head">
         <div>
           <p className="eyebrow">Inventory</p>
-          <h1>Items</h1>
+          <h1>{t('TITLE', { defaultValue: 'Items' })}</h1>
         </div>
         <button className="primary-button inline-action" type="button" onClick={() => navigate('/inventory/new')}>
           <Plus size={18} />

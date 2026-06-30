@@ -322,7 +322,8 @@ h1 {
   font-weight: 800;
 }
 
-.profile-menu {
+.profile-menu,
+.language-menu {
   position: relative;
 }
 
@@ -334,8 +335,7 @@ h1 {
 }
 
 .profile-button,
-.icon-button,
-.language-control {
+.icon-button {
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text-strong);
@@ -349,36 +349,19 @@ h1 {
   font-weight: 700;
 }
 
-.language-control {
-  display: flex;
-  min-height: 40px;
-  align-items: center;
-  gap: 7px;
-  border-radius: 7px;
-  padding: 0 9px;
+.language-button {
+  min-width: 150px;
+  justify-content: space-between;
 }
 
-.language-control select {
-  min-width: 116px;
-  border: 0;
-  background: transparent;
-  color: var(--text-strong);
-  font-weight: 800;
-  outline: none;
-}
-
-.language-control:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
-}
-
-.language-control:has(select:disabled) {
+.language-button:disabled {
   color: var(--muted);
+  cursor: not-allowed;
 }
 
 .profile-button:hover,
 .icon-button:hover,
-.language-control:hover {
+.language-button:not(:disabled):hover {
   background: var(--panel-hover);
 }
 
@@ -420,6 +403,28 @@ h1 {
 
 .profile-dropdown button:hover {
   background: var(--accent-soft);
+}
+
+.language-dropdown {
+  width: 230px;
+}
+
+.language-dropdown button {
+  justify-content: flex-start;
+}
+
+.language-dropdown button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.language-option-code {
+  min-width: 58px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .dashboard-layout {
@@ -743,17 +748,17 @@ tbody tr:hover {
   }
 
   .topbar-brand span:last-child,
-  .profile-button span {
+  .profile-button span:not(.language-option-code) {
     display: none;
   }
 
-  .language-control {
+  .language-button {
+    min-width: 40px;
     padding: 0 8px;
   }
 
-  .language-control select {
-    width: 64px;
-    min-width: 64px;
+  .language-dropdown {
+    width: 220px;
   }
 
   .dashboard-layout {
