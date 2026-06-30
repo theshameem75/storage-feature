@@ -93,6 +93,40 @@ function normalizeAuthUrl(rawUrl) {
   }
 }
 
+function readTokenValue(payload, keys) {
+  for (const key of keys) {
+    if (typeof payload?.[key] === 'string' && payload[key].trim()) {
+      return payload[key].trim();
+    }
+  }
+
+  return '';
+}
+
+function normalizeTokenResponse(payload) {
+  const tokenPayload = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+  const idToken = readTokenValue(tokenPayload, ['id_token', 'idToken', 'IdToken']);
+  const accessToken =
+    readTokenValue(tokenPayload, ['access_token', 'accessToken', 'AccessToken']) || idToken;
+
+  if (!accessToken) {
+    throw new Error('Token exchange did not return a bearer token.');
+  }
+
+  return {
+    ...tokenPayload,
+    access_token: accessToken,
+    id_token: idToken,
+    refresh_token: readTokenValue(tokenPayload, ['refresh_token', 'refreshToken', 'RefreshToken']),
+    expires_in:
+      tokenPayload?.expires_in ||
+      tokenPayload?.expiresIn ||
+      tokenPayload?.ExpiresIn ||
+      tokenPayload?.expiration ||
+      tokenPayload?.Expiration,
+  };
+}
+
 export async function startAuthorization() {
   assertAuthConfig();
 
@@ -226,7 +260,7 @@ export async function handleAuthorizationCallback() {
     throw new Error(`Token exchange failed: ${await response.text()}`);
   }
 
-  const tokens = await response.json();
+  const tokens = normalizeTokenResponse(await response.json());
 
   localStorage.setItem('access_token', tokens.access_token);
   if (tokens.id_token) {

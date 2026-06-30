@@ -96,7 +96,7 @@ const inventoryColumns = [
 const localizationBaseUrl =
   import.meta.env.VITE_BLOCKS_API_URL || 'https://dev-api.blocksdevelopers.com';
 const storageBaseUrl =
-  import.meta.env.VITE_BLOCKS_LOGIC_URL || 'https://dev-logic.blocksdevelopers.com';
+  import.meta.env.VITE_BLOCKS_LOGIC_URL || 'https://logic.seliseblocks.com';
 const authBaseUrl =
   import.meta.env.VITE_OIDC_API_URL ||
   import.meta.env.VITE_API_URL ||
@@ -147,7 +147,19 @@ function getAuthHeaders() {
     localStorage.getItem('token') ||
     localStorage.getItem('blocks-os-token');
 
-  return token ? { Authorization: token.startsWith('Bearer ') ? token : `Bearer ${token}` } : {};
+  if (!token) {
+    return {};
+  }
+
+  const trimmedToken = token.trim();
+
+  if (!trimmedToken || trimmedToken === 'undefined' || trimmedToken === 'null') {
+    return {};
+  }
+
+  return {
+    Authorization: /^Bearer\s+/i.test(trimmedToken) ? trimmedToken : `Bearer ${trimmedToken}`,
+  };
 }
 
 function getDataHeaders() {
@@ -302,6 +314,12 @@ async function uploadInventoryFile(file) {
     return '';
   }
 
+  const authHeaders = getAuthHeaders();
+
+  if (!authHeaders.Authorization) {
+    throw new Error('You must be signed in before uploading an inventory file.');
+  }
+
   const itemId =
     typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
@@ -311,8 +329,8 @@ async function uploadInventoryFile(file) {
     headers: {
       accept: 'text/plain',
       'Content-Type': 'application/json',
+      Authorization: authHeaders.Authorization,
       'x-blocks-key': import.meta.env.VITE_X_BLOCKS_KEY,
-      ...getAuthHeaders(),
     },
     body: JSON.stringify({
       itemId,
