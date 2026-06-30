@@ -355,7 +355,10 @@ async function uploadInventoryFile(file) {
 
   const uploadResponse = await fetch(uploadUrl, {
     method: 'PUT',
-    headers: file.type ? { 'Content-Type': file.type } : undefined,
+    headers: {
+      ...(file.type ? { 'Content-Type': file.type } : {}),
+      'x-ms-blob-type': 'BlockBlob',
+    },
     body: file,
   });
 
@@ -363,8 +366,7 @@ async function uploadInventoryFile(file) {
     throw new Error(`File upload failed with status ${uploadResponse.status}`);
   }
 
-  const uploadedPayload = readJsonMaybe(await uploadResponse.text());
-  const uploadedFileId = findFileId(uploadedPayload) || initialFileId;
+  const uploadedFileId = initialFileId;
 
   if (!uploadedFileId) {
     throw new Error('Storage service did not return a file id.');
