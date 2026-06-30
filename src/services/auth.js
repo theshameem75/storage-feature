@@ -106,12 +106,7 @@ function readTokenValue(payload, keys) {
 function normalizeTokenResponse(payload) {
   const tokenPayload = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
   const idToken = readTokenValue(tokenPayload, ['id_token', 'idToken', 'IdToken']);
-  const accessToken =
-    readTokenValue(tokenPayload, ['access_token', 'accessToken', 'AccessToken']) || idToken;
-
-  if (!accessToken) {
-    throw new Error('Token exchange did not return a bearer token.');
-  }
+  const accessToken = readTokenValue(tokenPayload, ['access_token', 'accessToken', 'AccessToken']);
 
   return {
     ...tokenPayload,
@@ -241,6 +236,7 @@ export async function handleAuthorizationCallback() {
 
   const response = await fetch(tokenUrl, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json',
@@ -262,7 +258,11 @@ export async function handleAuthorizationCallback() {
 
   const tokens = normalizeTokenResponse(await response.json());
 
-  localStorage.setItem('access_token', tokens.access_token);
+  if (tokens.access_token) {
+    localStorage.setItem('access_token', tokens.access_token);
+  } else {
+    localStorage.removeItem('access_token');
+  }
   if (tokens.id_token) {
     localStorage.setItem('id_token', tokens.id_token);
   }
