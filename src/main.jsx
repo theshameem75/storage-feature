@@ -38,6 +38,7 @@ import './styles.css';
 import {
   handleAuthorizationCallback,
   logout as oidcLogout,
+  refreshSession,
   startAuthorization,
 } from './services/auth';
 
@@ -152,8 +153,8 @@ function getCommonHeaders() {
   };
 }
 
-async function iamFetch(url, init = {}) {
-  return fetch(url, {
+async function iamFetch(url, init = {}, retried = false) {
+  const response = await fetch(url, {
     ...init,
     credentials: 'include',
     headers: {
@@ -161,6 +162,16 @@ async function iamFetch(url, init = {}) {
       ...init.headers,
     },
   });
+
+  if (response.status === 401 && !retried) {
+    const refreshed = await refreshSession();
+    if (refreshed) {
+      return iamFetch(url, init, true);
+    }
+    window.location.replace('/');
+  }
+
+  return response;
 }
 
 function toNumberOrNull(value) {

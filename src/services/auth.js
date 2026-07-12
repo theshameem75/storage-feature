@@ -113,6 +113,19 @@ export async function handleAuthorizationCallback() {
   return data;
 }
 
+export async function refreshSession() {
+  const response = await fetch(`${OIDC_CONFIG.issuer}/auth/token`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'x-blocks-key': OIDC_CONFIG.tenantId,
+    },
+    body: new URLSearchParams({ grant_type: 'refresh_token' }),
+  });
+  return response.ok;
+}
+
 export async function logout() {
   await fetch(`${OIDC_CONFIG.iamUrl}/api/idp/logout`, {
     method: 'GET',
