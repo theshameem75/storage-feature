@@ -10,21 +10,26 @@ import {
 } from 'react-router-dom';
 import {
   ArrowLeft,
+  Building2,
   ChevronDown,
   Boxes,
   CircleCheck,
   KeyRound,
   Languages,
+  LayoutDashboard,
   LogIn,
   LogOut,
   Menu,
   Moon,
   Plus,
   Save,
+  Search,
   ShieldCheck,
   Sun,
   Upload,
   UserCircle,
+  UserPlus,
+  Users,
   X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -33,6 +38,7 @@ import './styles.css';
 import {
   handleAuthorizationCallback,
   logout as oidcLogout,
+  refreshAccessToken,
   startAuthorization,
 } from './services/auth';
 
@@ -107,7 +113,9 @@ const authTenantId =
   import.meta.env.VITE_X_BLOCKS_KEY ||
   '';
 
+const iamBaseUrl = `${localizationBaseUrl.replace(/\/$/, '')}/iam/v4/iam`;
 const themeStorageKey = 'blocks-os-theme';
+const orgStorageKey = 'blocks-os-org';
 
 const inventoryInitialForm = {
   ItemName: '',
@@ -168,6 +176,37 @@ function getDataHeaders() {
     'x-blocks-key': import.meta.env.VITE_X_BLOCKS_KEY,
     ...getAuthHeaders(),
   };
+}
+
+function getIamHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    'x-blocks-key': import.meta.env.VITE_X_BLOCKS_KEY,
+    ...getAuthHeaders(),
+  };
+}
+
+// Fetch wrapper for IAM management endpoints that retries once on 401 after refreshing the token.
+async function iamFetch(url, init = {}, retried = false) {
+  const response = await fetch(url, {
+    ...init,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-blocks-key': import.meta.env.VITE_X_BLOCKS_KEY,
+      ...getAuthHeaders(),
+      ...init.headers,
+    },
+  });
+
+  if (response.status === 401 && !retried) {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      return iamFetch(url, init, true);
+    }
+  }
+
+  return response;
 }
 
 function toNumberOrNull(value) {
@@ -410,6 +449,85 @@ function getLanguageLabel(language) {
 
 function getLanguageCode(language) {
   return language.languageCode || language.code || language.culture || language.id;
+}
+
+function OrgSwitcher({ selectedOrgId, onOrgChange }) {
+  const [orgs, setOrgs] = useState([]);
+  const [open, setOpen] = useState(false);
+  const selectedOrg = orgs.find((o) => o.itemId === selectedOrgId);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadOrgs() {
+      try {
+        const resp = await iamFetch(`${iamBaseUrl}/organizations/my`, {
+          signal: controller.signal,
+        });
+
+        if (!resp.ok) {
+          return;
+        }
+
+        const data = await resp.json();
+        const list = data.organizations || [];
+        setOrgs(list);
+
+        if (!selectedOrgId && list.length > 0) {
+          onOrgChange(list[0].itemId);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    loadOrgs();
+
+    return () => controller.abort();
+  }, []);
+
+  if (orgs.length === 0) {
+    return null;
+  }
+
+  function handleSelect(orgId) {
+    setOpen(false);
+    onOrgChange(orgId);
+  }
+
+  return (
+    <div className="org-switcher-menu">
+      <button
+        className="profile-button org-button"
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <Building2 size={18} aria-hidden="true" />
+        <span className="org-button-name">{selectedOrg?.name || 'Organization'}</span>
+        <ChevronDown size={16} />
+      </button>
+
+      {open ? (
+        <div className="profile-dropdown org-dropdown" role="menu">
+          <p className="dropdown-label">Switch organization</p>
+          {orgs.map((org) => (
+            <button
+              key={org.itemId}
+              type="button"
+              role="menuitem"
+              className={org.itemId === selectedOrgId ? 'active' : ''}
+              onClick={() => handleSelect(org.itemId)}
+            >
+              <Building2 size={15} />
+              {org.name}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function LanguageSelector() {
@@ -882,11 +1000,37 @@ function ActivationPage({ theme, onThemeChange }) {
   );
 }
 
-function AppShell({ children, theme, onThemeChange }) {
+function AppShell({ children, theme, onThemeChange, selectedOrgId, onOrgChange }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   const navigate = useNavigate();
   const { t } = useTranslation();
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadMe() {
+      try {
+        const resp = await iamFetch(`${iamBaseUrl}/me`, {
+          signal: controller.signal,
+        });
+
+        if (!resp.ok) {
+          return;
+        }
+
+        const data = await resp.json();
+        setCurrentUser(data.data || null);
+      } catch {
+        // ignore
+      }
+    }
+
+    loadMe();
+
+    return () => controller.abort();
+  }, []);
 
   async function handleLogout() {
     await oidcLogout();
@@ -896,6 +1040,10 @@ function AppShell({ children, theme, onThemeChange }) {
   function closeDrawer() {
     setDrawerOpen(false);
   }
+
+  const displayName = currentUser
+    ? [currentUser.firstName, currentUser.lastName].filter(Boolean).join(' ') || currentUser.email
+    : t('profile.name', { defaultValue: 'Account' });
 
   return (
     <div className="app-shell">
@@ -918,6 +1066,10 @@ function AppShell({ children, theme, onThemeChange }) {
           <ThemeToggle theme={theme} onThemeChange={onThemeChange} />
           <LanguageSelector />
 
+          {onOrgChange ? (
+            <OrgSwitcher selectedOrgId={selectedOrgId} onOrgChange={onOrgChange} />
+          ) : null}
+
           <div className="profile-menu">
             <button
               className="profile-button"
@@ -927,18 +1079,26 @@ function AppShell({ children, theme, onThemeChange }) {
               onClick={() => setProfileOpen((isOpen) => !isOpen)}
             >
               <UserCircle size={22} />
-              <span>{t('profile.name', { defaultValue: 'Meraj Admin' })}</span>
+              <span>{displayName}</span>
               <ChevronDown size={16} />
             </button>
 
             {profileOpen ? (
               <div className="profile-dropdown" role="menu">
-                <button type="button" role="menuitem" onClick={() => setProfileOpen(false)}>
-                  {t('profile.myProfile', { defaultValue: 'My Profile' })}
+                {currentUser?.email ? (
+                  <p className="dropdown-label">{currentUser.email}</p>
+                ) : null}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setProfileOpen(false); navigate('/profile'); }}
+                >
+                  <UserCircle size={16} />
+                  {t('profile.myProfile', { defaultValue: 'My profile' })}
                 </button>
                 <button type="button" role="menuitem" onClick={handleLogout}>
                   <LogOut size={16} />
-                  {t('LOGOUT', { ns: 'common', defaultValue: 'log out' })}
+                  {t('LOGOUT', { ns: 'common', defaultValue: 'Log out' })}
                 </button>
               </div>
             ) : null}
@@ -964,6 +1124,14 @@ function AppShell({ children, theme, onThemeChange }) {
             <NavLink
               className={({ isActive }) => `drawer-link ${isActive ? 'active' : ''}`}
               to="/dashboard"
+              onClick={closeDrawer}
+            >
+              <LayoutDashboard size={19} />
+              <span>Dashboard</span>
+            </NavLink>
+            <NavLink
+              className={({ isActive }) => `drawer-link ${isActive ? 'active' : ''}`}
+              to="/iam"
               onClick={closeDrawer}
             >
               <ShieldCheck size={19} />
@@ -1271,6 +1439,625 @@ function InventoryCreatePage({ theme, onThemeChange }) {
   );
 }
 
+function IAMPage({ theme, onThemeChange, selectedOrgId, onOrgChange }) {
+  const navigate = useNavigate();
+  const [users, setUsers] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(0);
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [iamStatus, setIamStatus] = useState('loading');
+  const [iamError, setIamError] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [selectedOrgId, debouncedSearch]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadUsers() {
+      setIamStatus('loading');
+      setIamError('');
+
+      try {
+        const resp = await iamFetch(`${iamBaseUrl}/users`, {
+          method: 'POST',
+          body: JSON.stringify({
+            page,
+            pageSize: 20,
+            sort: { property: 'email', isDescending: false },
+            filter: {
+              name: debouncedSearch,
+              email: '',
+              userIds: [],
+              org_id: selectedOrgId || '',
+            },
+          }),
+          signal: controller.signal,
+        });
+
+        if (!resp.ok) {
+          throw new Error(`Request failed with status ${resp.status}`);
+        }
+
+        const payload = await resp.json();
+
+        if (payload.errors?.length) {
+          throw new Error(payload.errors[0].message || 'Failed to load users');
+        }
+
+        setUsers(payload.data || []);
+        setTotalCount(payload.totalCount || 0);
+        setIamStatus('ready');
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          return;
+        }
+
+        setIamError(error.message);
+        setIamStatus('error');
+      }
+    }
+
+    loadUsers();
+
+    return () => controller.abort();
+  }, [page, debouncedSearch, selectedOrgId]);
+
+  const totalPages = Math.ceil(totalCount / 20);
+
+  const userColumns = [
+    { key: 'firstName', label: 'First name' },
+    { key: 'lastName', label: 'Last name' },
+    { key: 'email', label: 'Email' },
+    { key: 'phoneNumber', label: 'Phone' },
+    { key: 'active', label: 'Status' },
+    { key: 'roles', label: 'Roles' },
+  ];
+
+  function renderUserCell(key, value) {
+    if (key === 'active') {
+      return (
+        <span className={`status-badge ${value ? 'status-active' : 'status-inactive'}`}>
+          {value ? 'Active' : 'Inactive'}
+        </span>
+      );
+    }
+
+    if (key === 'roles') {
+      return Array.isArray(value) && value.length > 0 ? value.join(', ') : '-';
+    }
+
+    return value !== null && value !== undefined && value !== '' ? String(value) : '-';
+  }
+
+  return (
+    <AppShell theme={theme} onThemeChange={onThemeChange} selectedOrgId={selectedOrgId} onOrgChange={onOrgChange}>
+      <section className="workspace-head">
+        <div>
+          <p className="eyebrow">IAM</p>
+          <h1>Users</h1>
+        </div>
+        <button
+          className="primary-button inline-action"
+          type="button"
+          onClick={() => navigate('/iam/new')}
+        >
+          <UserPlus size={18} />
+          <span>Add user</span>
+        </button>
+      </section>
+
+      <section className="table-section" aria-labelledby="iam-users-title">
+        <div className="section-head">
+          <div>
+            <p className="eyebrow">Identity &amp; access management</p>
+            <h2 id="iam-users-title">User list</h2>
+          </div>
+          <div className="section-actions">
+            <label className="search-control" htmlFor="iam-search">
+              <Search size={16} aria-hidden="true" />
+              <input
+                id="iam-search"
+                type="search"
+                placeholder="Search by name..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </label>
+            {totalCount > 0 ? (
+              <span className="page-pill">{totalCount} user{totalCount !== 1 ? 's' : ''}</span>
+            ) : null}
+          </div>
+        </div>
+
+        {iamStatus === 'loading' ? (
+          <div className="table-state">Loading users...</div>
+        ) : null}
+
+        {iamStatus === 'error' ? (
+          <div className="table-state error">Could not load users: {iamError}</div>
+        ) : null}
+
+        {iamStatus === 'ready' ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  {userColumns.map((col) => (
+                    <th key={col.key}>{col.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {users.length > 0 ? (
+                  users.map((user) => (
+                    <tr key={user.itemId || user.email}>
+                      {userColumns.map((col) => (
+                        <td key={col.key}>{renderUserCell(col.key, user[col.key])}</td>
+                      ))}
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={userColumns.length} style={{ textAlign: 'center' }}>
+                      {debouncedSearch ? `No users match "${debouncedSearch}".` : 'No users found.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
+        {iamStatus === 'ready' && totalPages > 1 ? (
+          <div className="pagination-row">
+            <button
+              className="secondary-button inline-action"
+              type="button"
+              disabled={page === 0}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              Previous
+            </button>
+            <span className="page-pill">Page {page + 1} of {totalPages}</span>
+            <button
+              className="secondary-button inline-action"
+              type="button"
+              disabled={page + 1 >= totalPages}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next
+            </button>
+          </div>
+        ) : null}
+      </section>
+    </AppShell>
+  );
+}
+
+function IAMCreatePage({ theme, onThemeChange, selectedOrgId, onOrgChange }) {
+  const navigate = useNavigate();
+  const [orgs, setOrgs] = useState([]);
+  const [form, setForm] = useState({
+    email: '',
+    firstName: '',
+    lastName: '',
+    phoneNumber: '',
+    password: '',
+    organizationId: selectedOrgId || '',
+  });
+  const [saveStatus, setSaveStatus] = useState('idle');
+  const [saveError, setSaveError] = useState('');
+
+  const isSaving = saveStatus === 'saving';
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadOrgs() {
+      try {
+        const resp = await iamFetch(
+          `${iamBaseUrl}/organizations?Page=0&PageSize=100&Sort.Property=name&Sort.IsDescending=false`,
+          { signal: controller.signal },
+        );
+
+        if (!resp.ok) {
+          // Fallback to my orgs
+          const myResp = await iamFetch(`${iamBaseUrl}/organizations/my`, {
+            signal: controller.signal,
+          });
+
+          if (!myResp.ok) {
+            return;
+          }
+
+          const myData = await myResp.json();
+          setOrgs(myData.organizations || []);
+          return;
+        }
+
+        const data = await resp.json();
+        setOrgs(data.organizations || []);
+      } catch {
+        // ignore
+      }
+    }
+
+    loadOrgs();
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (selectedOrgId && !form.organizationId) {
+      setForm((f) => ({ ...f, organizationId: selectedOrgId }));
+    }
+  }, [selectedOrgId]);
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setForm((f) => ({ ...f, [name]: value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSaveStatus('saving');
+    setSaveError('');
+
+    try {
+      const body = {
+        email: form.email,
+        userName: form.email,
+        firstName: form.firstName,
+        lastName: form.lastName,
+        phoneNumber: form.phoneNumber,
+        organizationId: form.organizationId,
+        userPassType: form.password ? 2 : 0,
+        userCreationType: 0,
+        verifiedType: 0,
+        userMfaType: 1,
+        mfaEnabled: false,
+        allowedLogInType: [0],
+        roles: [],
+        permissions: [],
+        attributes: {},
+      };
+
+      if (form.password) {
+        body.password = form.password;
+      }
+
+      const resp = await iamFetch(`${iamBaseUrl}/users/create`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        const msg =
+          (data.errors && typeof data.errors === 'object'
+            ? Object.values(data.errors).flat().join(', ')
+            : null) ||
+          data.message ||
+          `Request failed with status ${resp.status}`;
+        throw new Error(msg);
+      }
+
+      const payload = await resp.json();
+
+      if (payload.errors?.length) {
+        throw new Error(payload.errors[0].message || 'User creation failed');
+      }
+
+      navigate('/iam');
+    } catch (error) {
+      setSaveError(error.message);
+      setSaveStatus('error');
+    }
+  }
+
+  return (
+    <AppShell theme={theme} onThemeChange={onThemeChange} selectedOrgId={selectedOrgId} onOrgChange={onOrgChange}>
+      <section className="workspace-head">
+        <div>
+          <p className="eyebrow">IAM</p>
+          <h1>Add user</h1>
+        </div>
+        <button
+          className="secondary-button inline-action"
+          type="button"
+          onClick={() => navigate('/iam')}
+        >
+          <ArrowLeft size={18} />
+          <span>Back</span>
+        </button>
+      </section>
+
+      <section className="form-section" aria-labelledby="iam-create-title">
+        <div className="section-head">
+          <div>
+            <p className="eyebrow">New user</p>
+            <h2 id="iam-create-title">User details</h2>
+          </div>
+        </div>
+
+        <form className="inventory-form" onSubmit={handleSubmit}>
+          <div className="form-grid">
+            <label className="field-control" htmlFor="iam-email">
+              <span>Email address *</span>
+              <input
+                id="iam-email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                value={form.email}
+                onChange={handleChange}
+                required
+                disabled={isSaving}
+              />
+            </label>
+
+            <label className="field-control" htmlFor="iam-org">
+              <span>Organization</span>
+              <select
+                id="iam-org"
+                name="organizationId"
+                className="field-select"
+                value={form.organizationId}
+                onChange={handleChange}
+                disabled={isSaving}
+              >
+                <option value="">— Select organization —</option>
+                {orgs.map((org) => (
+                  <option key={org.itemId} value={org.itemId}>
+                    {org.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field-control" htmlFor="iam-firstName">
+              <span>First name</span>
+              <input
+                id="iam-firstName"
+                name="firstName"
+                type="text"
+                autoComplete="given-name"
+                value={form.firstName}
+                onChange={handleChange}
+                disabled={isSaving}
+              />
+            </label>
+
+            <label className="field-control" htmlFor="iam-lastName">
+              <span>Last name</span>
+              <input
+                id="iam-lastName"
+                name="lastName"
+                type="text"
+                autoComplete="family-name"
+                value={form.lastName}
+                onChange={handleChange}
+                disabled={isSaving}
+              />
+            </label>
+
+            <label className="field-control" htmlFor="iam-phone">
+              <span>Phone number</span>
+              <input
+                id="iam-phone"
+                name="phoneNumber"
+                type="tel"
+                autoComplete="tel"
+                value={form.phoneNumber}
+                onChange={handleChange}
+                disabled={isSaving}
+              />
+            </label>
+
+            <label className="field-control" htmlFor="iam-password">
+              <span>Password <small className="field-hint">(leave blank to send activation email)</small></span>
+              <input
+                id="iam-password"
+                name="password"
+                type="password"
+                autoComplete="new-password"
+                value={form.password}
+                onChange={handleChange}
+                disabled={isSaving}
+              />
+            </label>
+          </div>
+
+          {saveStatus === 'error' ? (
+            <div className="form-message error" role="alert">
+              Could not create user: {saveError}
+            </div>
+          ) : null}
+
+          <div className="form-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => navigate('/iam')}
+              disabled={isSaving}
+            >
+              Cancel
+            </button>
+            <button className="primary-button inline-action" type="submit" disabled={isSaving}>
+              <Users size={18} />
+              <span>{isSaving ? 'Creating...' : 'Create user'}</span>
+            </button>
+          </div>
+        </form>
+      </section>
+    </AppShell>
+  );
+}
+
+function ProfilePage({ theme, onThemeChange, selectedOrgId, onOrgChange }) {
+  const [me, setMe] = useState(null);
+  const [profileStatus, setProfileStatus] = useState('loading');
+  const [profileError, setProfileError] = useState('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadMe() {
+      setProfileStatus('loading');
+      setProfileError('');
+
+      try {
+        const resp = await iamFetch(`${iamBaseUrl}/me`, { signal: controller.signal });
+
+        if (!resp.ok) {
+          throw new Error(`Request failed with status ${resp.status}`);
+        }
+
+        const payload = await resp.json();
+
+        if (payload.errors?.length) {
+          throw new Error(payload.errors[0].message || 'Could not load profile');
+        }
+
+        setMe(payload.data || null);
+        setProfileStatus('ready');
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        setProfileError(error.message);
+        setProfileStatus('error');
+      }
+    }
+
+    loadMe();
+    return () => controller.abort();
+  }, []);
+
+  function formatDate(iso) {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleString(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+    } catch {
+      return iso;
+    }
+  }
+
+  return (
+    <AppShell theme={theme} onThemeChange={onThemeChange} selectedOrgId={selectedOrgId} onOrgChange={onOrgChange}>
+      <section className="workspace-head">
+        <div>
+          <p className="eyebrow">Account</p>
+          <h1>My profile</h1>
+        </div>
+      </section>
+
+      {profileStatus === 'loading' ? (
+        <div className="table-state">Loading profile...</div>
+      ) : null}
+
+      {profileStatus === 'error' ? (
+        <div className="table-state error">Could not load profile: {profileError}</div>
+      ) : null}
+
+      {profileStatus === 'ready' && me ? (
+        <div className="profile-sections">
+          <section className="profile-card" aria-labelledby="profile-identity">
+            <h2 id="profile-identity">Identity</h2>
+            <dl className="profile-dl">
+              <div className="profile-row">
+                <dt>Name</dt>
+                <dd>{[me.firstName, me.lastName].filter(Boolean).join(' ') || '—'}</dd>
+              </div>
+              <div className="profile-row">
+                <dt>Email</dt>
+                <dd>{me.email || '—'}</dd>
+              </div>
+              <div className="profile-row">
+                <dt>Phone</dt>
+                <dd>{me.phoneNumber || '—'}</dd>
+              </div>
+              <div className="profile-row">
+                <dt>Status</dt>
+                <dd>
+                  <span className={`status-badge ${me.active ? 'status-active' : 'status-inactive'}`}>
+                    {me.active ? 'Active' : 'Inactive'}
+                  </span>
+                </dd>
+              </div>
+              <div className="profile-row">
+                <dt>Verified</dt>
+                <dd>
+                  <span className={`status-badge ${me.isVerified ? 'status-active' : 'status-inactive'}`}>
+                    {me.isVerified ? 'Verified' : 'Unverified'}
+                  </span>
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="profile-card" aria-labelledby="profile-access">
+            <h2 id="profile-access">Roles &amp; permissions</h2>
+            <dl className="profile-dl">
+              <div className="profile-row">
+                <dt>Roles</dt>
+                <dd>
+                  {me.roles?.length ? (
+                    <div className="tag-list">
+                      {me.roles.map((r) => <span key={r} className="tag">{r}</span>)}
+                    </div>
+                  ) : '—'}
+                </dd>
+              </div>
+              <div className="profile-row">
+                <dt>Permissions</dt>
+                <dd>
+                  {me.permissions?.length ? (
+                    <div className="tag-list">
+                      {me.permissions.map((p) => <span key={p} className="tag">{p}</span>)}
+                    </div>
+                  ) : '—'}
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="profile-card" aria-labelledby="profile-security">
+            <h2 id="profile-security">Security &amp; activity</h2>
+            <dl className="profile-dl">
+              <div className="profile-row">
+                <dt>MFA enabled</dt>
+                <dd>
+                  <span className={`status-badge ${me.mfaEnabled ? 'status-active' : 'status-inactive'}`}>
+                    {me.mfaEnabled ? 'On' : 'Off'}
+                  </span>
+                </dd>
+              </div>
+              <div className="profile-row">
+                <dt>Login count</dt>
+                <dd>{me.logInCount ?? '—'}</dd>
+              </div>
+              <div className="profile-row">
+                <dt>Last login</dt>
+                <dd>{formatDate(me.lastLoggedInTime)}</dd>
+              </div>
+            </dl>
+          </section>
+        </div>
+      ) : null}
+    </AppShell>
+  );
+}
+
 function App() {
   const [theme, setTheme] = useState(() => {
     const savedTheme = localStorage.getItem(themeStorageKey);
@@ -1282,11 +2069,22 @@ function App() {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
 
+  const [selectedOrgId, setSelectedOrgId] = useState(
+    () => localStorage.getItem(orgStorageKey) || '',
+  );
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     localStorage.setItem(themeStorageKey, theme);
   }, [theme]);
+
+  function handleOrgChange(orgId) {
+    setSelectedOrgId(orgId);
+    localStorage.setItem(orgStorageKey, orgId);
+  }
+
+  const sharedProps = { theme, onThemeChange: setTheme, selectedOrgId, onOrgChange: handleOrgChange };
 
   return (
     <BrowserRouter>
@@ -1304,6 +2102,18 @@ function App() {
         <Route
           path="/dashboard"
           element={<DashboardPage theme={theme} onThemeChange={setTheme} />}
+        />
+        <Route
+          path="/profile"
+          element={<ProfilePage {...sharedProps} />}
+        />
+        <Route
+          path="/iam"
+          element={<IAMPage {...sharedProps} />}
+        />
+        <Route
+          path="/iam/new"
+          element={<IAMCreatePage {...sharedProps} />}
         />
         <Route
           path="/inventory"

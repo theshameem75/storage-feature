@@ -21,6 +21,8 @@ const OIDC_CONFIG = {
     `${window.location.origin}/callback`,
 };
 
+const TOKEN_STORAGE_KEY = 'blocks-os-token';
+
 function assertAuthConfig() {
   const missingKeys = [];
 
@@ -38,6 +40,61 @@ function assertAuthConfig() {
 
   if (missingKeys.length > 0) {
     throw new Error(`Missing OIDC configuration: ${missingKeys.join(', ')}`);
+  }
+}
+
+function extractToken(data) {
+  if (!data || typeof data !== 'object') return null;
+  // Check top-level fields
+  const top =
+    data.access_token ||
+    data.accessToken ||
+    data.token ||
+    data.id_token ||
+    data.sessionToken ||
+    data.jwt ||
+    null;
+  if (top) return top;
+  // Check one level deep (e.g. { data: { access_token } })
+  const nested = data.data;
+  if (nested && typeof nested === 'object') {
+    return (
+      nested.access_token ||
+      nested.accessToken ||
+      nested.token ||
+      nested.id_token ||
+      nested.sessionToken ||
+      nested.jwt ||
+      null
+    );
+  }
+  return null;
+}
+
+// Fetches the current session's access token using the HttpOnly session cookie.
+// Called after login and when a 401 is received on an IAM management call.
+export async function refreshAccessToken() {
+  try {
+    const response = await fetch(`${OIDC_CONFIG.issuer}/oidc/token`, {
+      credentials: 'include',
+      headers: { 'x-blocks-key': OIDC_CONFIG.tenantId },
+    });
+
+    console.log('[auth] refreshAccessToken status:', response.status);
+    if (!response.ok) return null;
+
+    const data = await response.json().catch(() => null);
+    console.log('[auth] refreshAccessToken body:', data);
+    const token = extractToken(data);
+
+    if (token) {
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    }
+
+    return token;
+  } catch (e) {
+    console.log('[auth] refreshAccessToken error:', e);
+    return null;
   }
 }
 
@@ -95,11 +152,10 @@ export async function handleAuthorizationCallback() {
     throw new Error('Missing code or state in callback');
   }
 
-  const callbackUrl = new URL(`${OIDC_CONFIG.issuer}/idp/callback`);
-  callbackUrl.searchParams.set('code', code);
-  callbackUrl.searchParams.set('state', state);
+  const callbackParams = new URLSearchParams({ code, state });
+  const callbackUrl = `${OIDC_CONFIG.issuer}/idp/callback?${callbackParams}`;
 
-  const response = await fetch(callbackUrl.toString(), {
+  const response = await fetch(callbackUrl, {
     method: 'GET',
     credentials: 'include',
     headers: { 'x-blocks-key': OIDC_CONFIG.tenantId },
@@ -109,10 +165,20 @@ export async function handleAuthorizationCallback() {
     throw new Error(`Auth callback failed: ${await response.text()}`);
   }
 
-  return response.json().catch(() => null);
+  const data = await response.json().catch(() => null);
+  console.log('[auth] callback response body:', data);
+  console.log('[auth] cookies after callback:', document.cookie);
+
+  // The callback returns an id_token (identity only) — not usable as Bearer for management APIs.
+  // Get the actual access token from the session cookie via the token endpoint.
+  await refreshAccessToken();
+
+  return data;
 }
 
 export async function logout() {
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+
   await fetch(`${OIDC_CONFIG.iamUrl}/api/idp/logout`, {
     method: 'GET',
     credentials: 'include',
