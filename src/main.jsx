@@ -38,7 +38,6 @@ import './styles.css';
 import {
   handleAuthorizationCallback,
   logout as oidcLogout,
-  refreshAccessToken,
   startAuthorization,
 } from './services/auth';
 
@@ -146,67 +145,22 @@ const inventoryBooleanFields = [
   { key: 'EligibleReplacement', label: 'Eligible replacement' },
 ];
 
-function getAuthHeaders() {
-  const token =
-    import.meta.env.VITE_AUTH_TOKEN ||
-    localStorage.getItem('access_token') ||
-    localStorage.getItem('accessToken') ||
-    localStorage.getItem('authToken') ||
-    localStorage.getItem('token') ||
-    localStorage.getItem('blocks-os-token');
-
-  if (!token) {
-    return {};
-  }
-
-  const trimmedToken = token.trim();
-
-  if (!trimmedToken || trimmedToken === 'undefined' || trimmedToken === 'null') {
-    return {};
-  }
-
-  return {
-    Authorization: /^Bearer\s+/i.test(trimmedToken) ? trimmedToken : `Bearer ${trimmedToken}`,
-  };
-}
-
-function getDataHeaders() {
+function getCommonHeaders() {
   return {
     'Content-Type': 'application/json',
     'x-blocks-key': import.meta.env.VITE_X_BLOCKS_KEY,
-    ...getAuthHeaders(),
   };
 }
 
-function getIamHeaders() {
-  return {
-    'Content-Type': 'application/json',
-    'x-blocks-key': import.meta.env.VITE_X_BLOCKS_KEY,
-    ...getAuthHeaders(),
-  };
-}
-
-// Fetch wrapper for IAM management endpoints that retries once on 401 after refreshing the token.
-async function iamFetch(url, init = {}, retried = false) {
-  const response = await fetch(url, {
+async function iamFetch(url, init = {}) {
+  return fetch(url, {
     ...init,
     credentials: 'include',
     headers: {
-      'Content-Type': 'application/json',
-      'x-blocks-key': import.meta.env.VITE_X_BLOCKS_KEY,
-      ...getAuthHeaders(),
+      ...getCommonHeaders(),
       ...init.headers,
     },
   });
-
-  if (response.status === 401 && !retried) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
-      return iamFetch(url, init, true);
-    }
-  }
-
-  return response;
 }
 
 function toNumberOrNull(value) {
@@ -353,16 +307,12 @@ async function uploadInventoryFile(file) {
     return '';
   }
 
-  const authHeaders = getAuthHeaders();
-
   const response = await fetch(filesUploadUrl, {
     method: 'POST',
     credentials: 'include',
     headers: {
       accept: 'text/plain',
-      'Content-Type': 'application/json',
-      'x-blocks-key': import.meta.env.VITE_X_BLOCKS_KEY,
-      ...authHeaders,
+      ...getCommonHeaders(),
     },
     body: JSON.stringify({
       metaData: '',
@@ -426,7 +376,7 @@ mutation {
   const response = await fetch(dataGatewayUrl, {
     method: 'POST',
     credentials: 'include',
-    headers: getDataHeaders(),
+    headers: getCommonHeaders(),
     body: JSON.stringify({ query }),
   });
 
@@ -1212,7 +1162,7 @@ function InventoryPage({ theme, onThemeChange }) {
         const response = await fetch(dataGatewayUrl, {
           method: 'POST',
           credentials: 'include',
-          headers: getDataHeaders(),
+          headers: getCommonHeaders(),
           body: JSON.stringify({ query: inventoryQuery }),
           signal: controller.signal,
         });
@@ -1719,12 +1669,12 @@ function IAMCreatePage({ theme, onThemeChange, selectedOrgId, onOrgChange }) {
         lastName: form.lastName,
         phoneNumber: form.phoneNumber,
         organizationId: form.organizationId,
-        userPassType: form.password ? 2 : 0,
-        userCreationType: 0,
-        verifiedType: 0,
+        userPassType: form.password ? 2 : 1,
+        userCreationType: 1,
+        verifiedType: 1,
         userMfaType: 1,
         mfaEnabled: false,
-        allowedLogInType: [0],
+        allowedLogInType: [1],
         roles: [],
         permissions: [],
         attributes: {},
