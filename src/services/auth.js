@@ -5,10 +5,6 @@ const OIDC_CONFIG = {
     import.meta.env.VITE_OIDC_API_URL ||
     import.meta.env.VITE_API_URL ||
     `${blocksApiUrl.replace(/\/$/, '')}/iam/v4`,
-  iamUrl:
-    import.meta.env.VITE_OIDC_IAM_URL ||
-    import.meta.env.VITE_IAM_URL ||
-    'https://iam.seliseblocks.com',
   tenantId:
     import.meta.env.VITE_OIDC_TENANT_ID ||
     import.meta.env.VITE_TENANT_ID ||
@@ -114,24 +110,37 @@ export async function handleAuthorizationCallback() {
 }
 
 export async function refreshSession() {
-  const response = await fetch(`${OIDC_CONFIG.issuer}/auth/token`, {
+  const response = await fetch(`${OIDC_CONFIG.issuer}/oidc/token`, {
     method: 'POST',
     credentials: 'include',
     headers: {
+      Accept: '*/*',
       'Content-Type': 'application/x-www-form-urlencoded',
       'x-blocks-key': OIDC_CONFIG.tenantId,
     },
-    body: new URLSearchParams({ grant_type: 'refresh_token' }),
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: OIDC_CONFIG.clientId,
+    }),
   });
   return response.ok;
 }
 
 export async function logout() {
-  await fetch(`${OIDC_CONFIG.iamUrl}/api/idp/logout`, {
-    method: 'GET',
+  const response = await fetch(`${OIDC_CONFIG.issuer}/auth/Logout`, {
+    method: 'POST',
     credentials: 'include',
-    headers: { 'x-blocks-key': OIDC_CONFIG.tenantId },
-  }).catch(() => null);
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'x-blocks-key': OIDC_CONFIG.tenantId,
+    },
+    body: JSON.stringify({}),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Logout failed: ${response.status} ${response.statusText}`);
+  }
 }
 
 export async function isAuthenticated() {
