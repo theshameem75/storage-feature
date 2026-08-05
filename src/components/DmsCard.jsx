@@ -25,7 +25,8 @@ const PERMISSIONS = ['read', 'write', 'delete', 'share'];
 
 function pickId(item, ...keys) {
   if (!item) return '';
-  for (const k of keys) {
+  const allKeys = ['itemId', 'ItemId', 'id', 'Id', ...keys];
+  for (const k of allKeys) {
     const v = item[k];
     if (v) return v;
   }
@@ -44,7 +45,19 @@ function pickName(item, ...keys) {
 function isDir(item) {
   if (!item) return false;
   const t = pickName(item, 'type', 'Type', 'itemType', 'ItemType');
-  if (!t) return !!pickId(item, 'directoryId', 'DirectoryId', 'parentDirectoryId', 'ParentDirectoryId');
+  if (!t) {
+    return !!pickId(
+      item,
+      'directoryId',
+      'DirectoryId',
+      'parentDirectoryId',
+      'ParentDirectoryId',
+      'id',
+      'Id',
+      'itemId',
+      'ItemId',
+    );
+  }
   return /dir|folder/i.test(t);
 }
 
@@ -55,6 +68,7 @@ export default function DmsCard({ open, onToggle, activeOrgId }) {
   const [breadcrumbs, setBreadcrumbs] = useState([]); // [{ id, name }]
   const [children, setChildren] = useState([]);
   const [cursor, setCursor] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
   const [trashItems, setTrashItems] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
   const [search, setSearch] = useState('');
@@ -102,6 +116,32 @@ export default function DmsCard({ open, onToggle, activeOrgId }) {
   async function loadChildren(dirId, resetCrumbs = false) {
     resetCalls();
     await withBusy(async () => {
+      if (dirId) {
+        pushCall({
+          method: 'GET',
+          label: 'getDir',
+          url: dmsUrls.getDirectory,
+          note: `→ directoryId=${dirId}`,
+        });
+        try {
+          const dirInfo = await dms.getDirectory({ directoryId: dirId });
+          pushRes(`200 { directoryId, name: ${dirInfo?.name || dirInfo?.Name || '∅'} }`);
+          const realName = pickName(dirInfo, 'name', 'Name');
+          if (realName) {
+            setBreadcrumbs((bs) => {
+              const idx = bs.findIndex((b) => b.id === dirId);
+              if (idx >= 0) {
+                const next = bs.slice();
+                next[idx] = { ...next[idx], name: realName };
+                return next;
+              }
+              return [...bs, { id: dirId, name: realName }];
+            });
+          }
+        } catch (e) {
+          pushRes(`✗ ${e.message}`);
+        }
+      }
       pushCall({
         method: 'GET',
         label: 'children',
@@ -109,9 +149,10 @@ export default function DmsCard({ open, onToggle, activeOrgId }) {
         note: `→ DirectoryId=${dirId || '<root>'}`,
       });
       const data = await dms.getDirectoryChildren({ directoryId: dirId, limit: 50 });
-      pushRes(`200 { items: ${(data?.items || []).length}, cursor: ${data?.cursor || '∅'} }`);
+      pushRes(`200 { items: ${(data?.items || []).length}, hasMore: ${!!data?.hasMore} }`);
       setChildren(data?.items || []);
       setCursor(data?.cursor || null);
+      setHasMore(!!data?.hasMore);
       setCurrentDirId(dirId);
       if (resetCrumbs) setBreadcrumbs(dirId ? [{ id: dirId, name: '…' }] : []);
     }).catch(() => {});
@@ -142,9 +183,10 @@ export default function DmsCard({ open, onToggle, activeOrgId }) {
         note: `→ cursor=${cursor}`,
       });
       const data = await dms.getDirectoryChildren({ directoryId: currentDirId, cursor, limit: 50 });
-      pushRes(`200 { items+: ${(data?.items || []).length} }`);
+      pushRes(`200 { items+: ${(data?.items || []).length}, hasMore: ${!!data?.hasMore} }`);
       setChildren((c) => [...c, ...(data?.items || [])]);
       setCursor(data?.cursor || null);
+      setHasMore(!!data?.hasMore);
     }).catch(() => {});
   }
 
@@ -308,13 +350,23 @@ export default function DmsCard({ open, onToggle, activeOrgId }) {
       if (kind === 'newFolder') {
         resetCalls();
         await withBusy(async () => {
-          pushCall({
-            method: 'POST',
-            label: 'create',
-            url: dmsUrls.createDirectory,
-            body: { parentDirectoryId: currentDirId, name: modalText },
-          });
-          await dms.createDirectory({ parentDirectoryId: currentDirId, name: modalText });
+          if (currentDirId) {
+            pushCall({
+              method: 'POST',
+              label: 'create',
+              url: dmsUrls.createDirectory,
+              body: { parentDirectoryId: currentDirId, name: modalText },
+            });
+            await dms.createDirectory({ parentDirectoryId: currentDirId, name: modalText });
+          } else {
+            pushCall({
+              method: 'POST',
+              label: 'createRoot',
+              url: dmsUrls.createRootDirectory,
+              body: { name: modalText },
+            });
+            await dms.createRootDirectory({ name: modalText });
+          }
           pushRes('200 { ok }');
         });
         showToast(t('dms.toast.created'));
@@ -578,7 +630,7 @@ export default function DmsCard({ open, onToggle, activeOrgId }) {
                 const dir = isDir(item);
                 const id = pickId(item, 'directoryId', 'DirectoryId', 'fileId', 'FileId');
                 const name = pickName(item, 'name', 'Name', 'fileName', 'FileName') || id.slice(0, 8);
-                const size = pickName(item, 'size', 'Size', 'contentLength', 'ContentLength');
+                const size = pickName(item, 'sizeInBytes', 'SizeInBytes', 'size', 'Size', 'contentLength', 'ContentLength');
                 return (
                   <div className="cx-dms-row" key={id}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
@@ -630,7 +682,7 @@ export default function DmsCard({ open, onToggle, activeOrgId }) {
             <button type="button" className="cx-btn" onClick={() => openModal('upload')} disabled={busy}>
               <Upload size={13} /> {t('dms.action.upload', 'upload file')}
             </button>
-            {cursor ? (
+            {hasMore ? (
               <button type="button" className="cx-btn" onClick={loadMore} disabled={busy}>
                 load more
               </button>

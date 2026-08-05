@@ -91,7 +91,13 @@ export async function getDirectory({ directoryId }) {
 }
 
 export async function getDirectoryChildren({ directoryId, cursor, limit, type, search }) {
-  return sendJson('GET', `${urls.getDirectoryChildren}${buildQuery({ DirectoryId: directoryId, cursor, limit, type, search })}`);
+  const raw = await sendJson('GET', `${urls.getDirectoryChildren}${buildQuery({ DirectoryId: directoryId, cursor, limit, type, search })}`);
+  return {
+    items: raw?.items || raw?.Items || [],
+    cursor: raw?.nextCursor || raw?.NextCursor || raw?.cursor || raw?.Cursor || null,
+    hasMore: !!(raw?.hasMore ?? raw?.HasMore),
+    totalCount: raw?.totalChildCount ?? raw?.TotalChildCount ?? raw?.totalCount ?? raw?.TotalCount ?? null,
+  };
 }
 
 export async function updateDirectory({ directoryId, name, ...rest }) {
@@ -155,11 +161,23 @@ export async function moveFile({ fileId, targetDirectoryId }) {
 // ---- Content ----
 
 export async function searchContent({ query, directoryId, cursor, limit, type }) {
-  return sendJson('GET', `${urls.searchContent}${buildQuery({ Query: query, DirectoryId: directoryId, cursor, limit, type })}`);
+  const raw = await sendJson('GET', `${urls.searchContent}${buildQuery({ Query: query, DirectoryId: directoryId, cursor, limit, type })}`);
+  return {
+    items: raw?.items || raw?.Items || [],
+    cursor: raw?.nextCursor || raw?.NextCursor || raw?.cursor || raw?.Cursor || null,
+    hasMore: !!(raw?.hasMore ?? raw?.HasMore),
+    totalCount: raw?.totalChildCount ?? raw?.totalCount ?? null,
+  };
 }
 
 export async function getTrash({ cursor, limit, type }) {
-  return sendJson('GET', `${urls.getTrash}${buildQuery({ cursor, limit, type })}`);
+  const raw = await sendJson('GET', `${urls.getTrash}${buildQuery({ cursor, limit, type })}`);
+  return {
+    items: raw?.items || raw?.Items || [],
+    cursor: raw?.nextCursor || raw?.NextCursor || raw?.cursor || raw?.Cursor || null,
+    hasMore: !!(raw?.hasMore ?? raw?.HasMore),
+    totalCount: raw?.totalChildCount ?? raw?.totalCount ?? null,
+  };
 }
 
 export async function restoreFromTrash({ id, type }) {
