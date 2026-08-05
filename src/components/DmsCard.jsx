@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -159,10 +159,22 @@ export default function DmsCard({ open, onToggle, activeOrgId }) {
   }
 
   async function navigateTo(crumb) {
-    if (!crumb) return loadChildren(null, true);
+    if (!crumb) {
+      setBreadcrumbs([]);
+      setCurrentDirId(null);
+      setChildren([]);
+      setCursor(null);
+      setHasMore(false);
+      await loadChildren(null, true);
+      return;
+    }
     const idx = breadcrumbs.findIndex((b) => b.id === crumb.id);
     const next = idx >= 0 ? breadcrumbs.slice(0, idx + 1) : [...breadcrumbs, crumb];
     setBreadcrumbs(next);
+    setCurrentDirId(crumb.id);
+    setChildren([]);
+    setCursor(null);
+    setHasMore(false);
     await loadChildren(crumb.id, false);
   }
 
