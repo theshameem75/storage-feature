@@ -126,8 +126,22 @@ export async function getFilesInfo({ fileIds }) {
   return sendJson('POST', urls.getFilesInfo, { fileIds });
 }
 
-export async function getPresignedUrlForUpload({ fileName, parentDirectoryId, configurationName, ...rest }) {
-  return sendJson('POST', urls.getPresignedUrlForUpload, { fileName, parentDirectoryId, configurationName, ...rest });
+export async function getPresignedUrlForUpload({
+  fileName,
+  parentDirectoryId,
+  configurationName,
+  tags = '',
+  metadata = '',
+  ...rest
+}) {
+  return sendJson('POST', urls.getPresignedUrlForUpload, {
+    Name: fileName,
+    ParentDirectoryId: parentDirectoryId,
+    ConfigurationName: configurationName,
+    Tags: tags,
+    MetaData: metadata,
+    ...rest,
+  });
 }
 
 export async function uploadFileToLocalStorage(payload) {

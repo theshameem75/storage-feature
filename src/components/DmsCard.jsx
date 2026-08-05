@@ -435,7 +435,12 @@ export default function DmsCard({ open, onToggle, activeOrgId }) {
             method: 'POST',
             label: 'presign',
             url: dmsUrls.getPresignedUrlForUpload,
-            body: { fileName: file.name, parentDirectoryId: currentDirId },
+            body: {
+              Name: file.name,
+              ParentDirectoryId: currentDirId,
+              Tags: '',
+              MetaData: '',
+            },
           });
           const { uploadUrl, fileId } = await dms.getPresignedUrlForUpload({
             fileName: file.name,
