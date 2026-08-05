@@ -12,16 +12,14 @@ import {
   refreshSession,
   startAuthorization,
 } from './services/auth';
+import { apiBaseUrl, projectKey, apiBus, bumpApi, useApiCount, commonHeaders, iamFetch, readJsonMaybe } from './services/api';
+import { ApiTrace } from './components/ApiTrace';
+import { ServiceCard } from './components/ServiceCard';
+import DmsCard from './components/DmsCard';
 
 /* ============================================================
    Config
    ============================================================ */
-const apiBaseUrl = (import.meta.env.VITE_BLOCKS_API_URL || 'https://api.seliseblocks.com').replace(
-  /\/$/,
-  '',
-);
-const projectKey = import.meta.env.VITE_X_BLOCKS_KEY || '';
-
 const iamBaseUrl = `${apiBaseUrl}/iam/v4/iam`;
 const authBaseUrl =
   import.meta.env.VITE_OIDC_API_URL ||
@@ -44,54 +42,8 @@ const orgStorageKey = 'construct-org';
 const langStorageKey = 'blocks-os-language';
 
 /* ============================================================
-   api-call counter bus — bumps on every real platform call
+   api-call counter bus + fetch helpers — see ./services/api
    ============================================================ */
-const apiBus = { count: 0, subs: new Set() };
-function bumpApi() {
-  apiBus.count += 1;
-  apiBus.subs.forEach((fn) => fn(apiBus.count));
-}
-function useApiCount() {
-  const [count, setCount] = useState(apiBus.count);
-  useEffect(() => {
-    const fn = (n) => setCount(n);
-    apiBus.subs.add(fn);
-    return () => apiBus.subs.delete(fn);
-  }, []);
-  return count;
-}
-
-/* ============================================================
-   Fetch helpers
-   ============================================================ */
-function commonHeaders() {
-  return { 'Content-Type': 'application/json', 'x-blocks-key': projectKey };
-}
-
-async function iamFetch(url, init = {}, retried = false) {
-  const response = await fetch(url, {
-    ...init,
-    credentials: 'include',
-    headers: { ...commonHeaders(), ...init.headers },
-  });
-
-  if (response.status === 401 && !retried) {
-    const refreshed = await refreshSession();
-    if (refreshed) {
-      return iamFetch(url, init, true);
-    }
-  }
-  return response;
-}
-
-function readJsonMaybe(text) {
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
 
 function findValueByKey(payload, keys) {
   if (!payload || typeof payload !== 'object') return '';
@@ -161,17 +113,6 @@ function slug(text) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '');
-}
-
-function toCurl({ method = 'POST', url, body }) {
-  const lines = [`curl -X ${method} '${url}' \\`, `  -H 'x-blocks-key: ${projectKey || '<project-key>'}' \\`];
-  if (body !== undefined) {
-    lines.push(`  -H 'Content-Type: application/json' \\`);
-    lines.push(`  --data '${typeof body === 'string' ? body : JSON.stringify(body)}'`);
-  } else {
-    lines[lines.length - 1] = lines[lines.length - 1].replace(/ \\$/, '');
-  }
-  return lines.join('\n');
 }
 
 /* ============================================================
@@ -542,110 +483,7 @@ function ThemeToggleBtn({ theme, onToggle, variant = 'icon' }) {
 // endpoint lines and the copyable cURLs, so they can never drift apart.
 //   request line : { method, url, body?, note?, label?, noCopy? }
 //   response line: { res: true, text }
-function ApiTrace({ calls = [], sdk, note }) {
-  const [copiedKey, setCopiedKey] = useState(null);
-  const copyable = calls.filter((c) => !c.res && c.method && c.url && !c.noCopy);
-
-  const doCopy = (e, key, text) => {
-    e.preventDefault();
-    e.stopPropagation();
-    navigator.clipboard?.writeText(text).then(
-      () => {
-        setCopiedKey(key);
-        setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1600);
-      },
-      () => {},
-    );
-  };
-
-  const methodCounts = {};
-  copyable.forEach((c) => {
-    methodCounts[c.method] = (methodCounts[c.method] || 0) + 1;
-  });
-  const labelFor = (c) => {
-    if (c.label) return c.label;
-    if (methodCounts[c.method] > 1) {
-      const seg = c.url.split('?')[0].split('/').filter(Boolean).pop() || '';
-      return `${c.method} ${seg.slice(0, 14)}`;
-    }
-    return c.method;
-  };
-
-  const chip = (key, label, text) => (
-    <button type="button" className="cx-copy" key={key} onClick={(e) => doCopy(e, key, text)}>
-      {copiedKey === key ? (
-        <>
-          <Check size={11} style={{ verticalAlign: '-2px' }} /> copied
-        </>
-      ) : (
-        <>
-          <Copy size={11} style={{ verticalAlign: '-2px' }} /> {label}
-        </>
-      )}
-    </button>
-  );
-
-  return (
-    <details className="cx-trace">
-      <summary>
-        <span className="cx-caret">▸</span> api trace &amp; platform notes
-        {copyable.length ? (
-          <span className="cx-trace-actions">
-            {copyable.map((c, i) => chip(`c${i}`, `copy ${labelFor(c)}`, toCurl(c)))}
-            {copyable.length > 1 ? chip('all', 'copy all', copyable.map((c) => toCurl(c)).join('\n\n')) : null}
-          </span>
-        ) : null}
-      </summary>
-      <pre className="cx-pre cx-scroll">
-        {calls.map((c, i) => (
-          <React.Fragment key={i}>
-            {c.res ? (
-              <>
-                <span className="out">←</span> {c.text}
-              </>
-            ) : (
-              <>
-                <span className="in">→</span> {c.method}  {c.url}
-                {c.note ? `   ${c.note}` : ''}
-              </>
-            )}
-            {'\n'}
-          </React.Fragment>
-        ))}
-        {sdk ? (
-          <>
-            {'\n'}
-            {sdk}
-          </>
-        ) : null}
-      </pre>
-      {note ? (
-        <div className="cx-note">
-          <div className="cap">platform notes</div>
-          <div className="txt">{note}</div>
-        </div>
-      ) : null}
-    </details>
-  );
-}
-
-function ServiceCard({ dotColor, name, sub, cmd, open, onToggle, children }) {
-  return (
-    <section className={`cx-svc${open ? ' open' : ''}`}>
-      <div className="cx-svc-head">
-        <span className="cx-dot" style={{ background: dotColor, color: dotColor }} />
-        <span className="cx-svc-name">{name}</span>
-        <span className="cx-svc-sub">{sub}</span>
-        <span style={{ flex: 1 }} />
-        <button type="button" className="cx-btn cyan" onClick={onToggle}>
-          {open ? 'collapse ▲' : 'run ▾'}
-        </button>
-      </div>
-      <div className="cx-cmd">{cmd}</div>
-      {open ? <div className="cx-body cx-svc-body">{children}</div> : null}
-    </section>
-  );
-}
+// (ApiTrace + ServiceCard now live in src/components/ for reuse by DmsCard.)
 
 /* ============================================================
    Login gate
@@ -2123,7 +1961,7 @@ function Console({ me, theme, onToggleTheme, onSignedOut }) {
   const [notifs, setNotifs] = useState(SEED_NOTIFS);
   const [lang, setLang] = useState(() => localStorage.getItem(langStorageKey) || 'en');
   const [languages, setLanguages] = useState([]);
-  const [open, setOpen] = useState({ iam: true, data: false, storage: false, notif: false });
+  const [open, setOpen] = useState({ iam: true, data: false, storage: false, notif: false, dms: false });
 
   const toggle = (k) => setOpen((s) => ({ ...s, [k]: !s[k] }));
 
@@ -2298,6 +2136,7 @@ function Console({ me, theme, onToggleTheme, onSignedOut }) {
               setNotifs((ns) => [{ id: `s${Date.now()}`, mode, title, body, time: 'now', read: false }, ...ns])
             }
           />
+          <DmsCard open={open.dms} onToggle={() => toggle('dms')} activeOrgId={activeOrgId} />
         </div>
 
         <footer className="cx-footer">
