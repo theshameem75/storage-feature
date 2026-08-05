@@ -1,10 +1,10 @@
-import { apiBaseUrl, iamFetch, bumpApi, toCurl } from './api';
+import { apiBaseUrl, bumpApi, iamFetch, toCurl } from './api';
 
 const isDev = import.meta.env.DEV;
 // in dev, route /data/v4/Directories|/Files|/Content through the Vite proxy
 // (same-origin, avoids CORS); in prod, hit apiBaseUrl directly.
 const dmsOrigin = isDev ? '' : apiBaseUrl;
-const dirsBase = `${dmsOrigin}/data/v4/Directories`;
+const dirsBase = `${dmsOrigin}/data/v4/Directory`;
 const dmsFilesBase = `${dmsOrigin}/data/v4/Files`;
 const contentBase = `${dmsOrigin}/data/v4/Content`;
 
