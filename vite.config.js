@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => {
           secure: true,
           cookieDomainRewrite: host,
         },
-        '/data/v4/Directories': {
+        '/data/v4/Directory': {
           target: 'https://blocksapi.dev.slsblx.com',
           changeOrigin: true,
           secure: true,
